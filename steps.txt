@@ -1,0 +1,274 @@
+1) Setup Repo
+2) Setup Required Server (Jenkins , Sonarqube, Nexus, Monitoring Tools)
+3) Configure Tools
+4) Create the pipelines & Create EKS Clusters
+5) Trigger the Pipeline to deploy the application
+6) Assign a Custom domain to the deployed application
+7) Monitor the Application
+
+Generate the token for github (except delete permissions)
+
+git clone url
+create private repo on git
+cd FullStack-Blogging-App
+git add .
+git commit -m "added files"
+git push
+
+Security Group -> ports -> 25 (smtp), 80 (http), 443 (https), 2000-11000 , 22 (ssh), 6443 , 465 (SMTPS)
+
+
+sonarqube and Nexus server :
+ubuntu 24 , t2.medium , storage 20 gb
+
+Jenkins:
+Ubuntu 24 , t2.large , 25 gb storage
+
+jenkins :
+sudo apt update
+java (go with 17 version of java)
+google (install jenkins -> linux -> ubuntu)
+
+vi 1.sh (paste above commands in this file from google)
+sudo chmod +x 1.sh
+ls
+./1.sh
+
+docker (copy suggested cmds)
+
+sudo chmod 666 /var/run/docker.sock
+ip:8080 (conigure jenkins)
+
+Nexus :
+sudo apt update
+docker (copy cmd from sug)
+sudo docker run -d --name Nexus -p 8081:8081 sonatype/nexus3
+sudo docker ps
+sudo docker exec -it container_id /bin/bash
+ls
+cd sonatype-work/
+ls
+cd nexus3
+ls
+cat admin.password
+
+admin , above password	
+enonomous (so that no cred will be needed for accessing it)
+
+
+ip : 8081 (nexus (takes sometime))
+
+Sonarqube Server:
+sudo apt update
+docker (copy cmd from sug)
+sudo docker run -d --name Sonarqube 9000:9000 soanrqube:lts-community
+
+ip:9000 (sonarqube)
+
+
+Jenkins server:
+Plugins :
+sonarqube scanner
+config file provider (for nexus part)
+Pipeline Maven Integration
+kubernetes , kubernetes credentials , kubernetes CLI , Kubernetes Client API
+docker, docker pipeline
+eclipse temurin installer
+pipeline: State view
+
+SonarQube configuration in Jenkins :
+Before configuring SonarQube in jenkins , we need to generate a SoanrQube token to establish a connection b/w jenkins and SonarQube.
+Goto SonarQube console console => Administrator(top pane) -> 'Security' drop down -> users -> 3 dots -> Generate token (name : jenkins)
+
+Tools Configuration in Jenkins :
+Manage Jenkins ->  System configuration -> tools =>
+JDK => name (jdk17) , check install automatically ->Install from adoptium.net , jdk-17.0.11+9
+SoanrQube Scanner Installation => name (sonar-scanner) , version (latest version : 6.2.0.4610)
+Docker => name (docker) , automatcially -> Download from docker.com , version (latest)
+Maven => name (maven3) ,latest version
+
+Jenkins Server :
+trivy (google server based on ubuntu)
+
+Configuration of SonarQube Token in Jenkins
+Manage Jenkins -> Security -> Credentials -> global =>
+kind (secret text) , secret (sonarqube_token) , id (sonar-token)
+kind (username and password) , username (docker_username) , password (docker_token/pass) , iD (docker-cred)
+kind (username and password) , username (git_username) , password (git_token/pass) , iD (git-cred)
+
+System Configuration in Jenkins
+Manage Jenkins -> System -> SonarQube Server =>
+name (sonar-server) , url (https://sonar:9000) , server authentication token (sonar-token (from dropdown))
+
+Nexus webpage =>
+Maven-releases -> copy id and paste in github pom.xml
+Maven-snapshots -> copy id and paste in github pom.xml
+
+Manage Jenkins -> Managed files -> add a new config -> Global Maven settings.xml -> maven-settings (ID ) -> update the content in with maven-release , maven-snapshot with username and password.
+
+Jenkins => new item -> name (blogging) -> pipeline =>
+General -> Discard old builds -> max (2)
+
+Below settings need to be done or else you can upload the same artificat again and again
+Nexus webpage=> settings -> Repositories -> snapshots -> Deployment Policy -> allow redploy
+
+Dockerhub => create private repository (bloggingapp)
+
+
+Pipeline :
+
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk17'
+        maven 'maven3'
+    }
+
+    enviornment {
+        SCANNER_HOME= tool 'sonar-scanner'
+    }
+
+    stages {
+        stage('Git Checkout') {
+            steps {
+               git branch: 'main', credentialsId: 'git-cred', url: 'https://github.com/jaiswaladi246/Boardgame.git'
+            }
+        }
+        
+        stage('Compile') {
+            steps {
+                sh "mvn compile"
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh "mvn test"
+            }
+        }
+        
+        stage('File System Scan') {
+            steps {
+                sh "trivy fs --format table -o trivy-fs-report.html ."
+            }
+        }
+        
+        stage('SonarQube Analsyis') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Blogging-app -Dsonar.projectKey=Blogging-app \
+                            -Dsonar.java.binaries=target'''
+                }
+            }
+        }
+        
+        stage('Quality Gate') {
+            steps {
+                script {
+                  waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token' 
+                }
+            }
+        }
+        
+        stage('Build') {
+            steps {
+               sh "mvn package"
+            }
+        }
+        
+        stage('Publish To Nexus') {
+            steps {
+               withMaven(globalMavenSettingsConfig: 'global-settings', jdk: 'jdk17', maven: 'maven3', mavenSettingsConfig: '', traceability: true) {
+                    sh "mvn deploy"
+                }
+            }
+        }
+        
+        stage('Build & Tag Docker Image') {
+            steps {
+               script {
+                   withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+                            sh "docker build -t shabbirsyed103/bloggingapp:latest ."
+                    }
+               }
+            }
+        }
+        
+        stage('Docker Image Scan') {
+            steps {
+                sh "trivy image --format table -o trivy-image-report.html shabbirsyed103/bloggingapp:latest "
+            }
+        }
+        
+        stage('Push Docker Image') {
+            steps {
+               script {
+                   withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+                            sh "docker push shabbirsyed103/bloggingapp:latest"
+                    }
+               }
+            }
+        }
+        stage('Deploy To Kubernetes') {
+            steps {
+               withKubeConfig(caCertificate: '', clusterName: 'kubernetes', contextName: '', credentialsId: 'k8-cred', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://172.31.8.146:6443') {
+                        sh "kubectl apply -f deployment-service.yaml"
+                }
+            }
+        }
+        
+        stage('Verify the Deployment') {
+            steps {
+               withKubeConfig(caCertificate: '', clusterName: 'kubernetes', contextName: '', credentialsId: 'k8-cred', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://172.31.8.146:6443') {
+                        sh "kubectl get pods -n webapps"
+                        sh "kubectl get svc -n webapps"
+                }
+            }
+        }
+        
+        
+    }
+    post {
+    always {
+        script {
+            def jobName = env.JOB_NAME
+            def buildNumber = env.BUILD_NUMBER
+            def pipelineStatus = currentBuild.result ?: 'UNKNOWN'
+            def bannerColor = pipelineStatus.toUpperCase() == 'SUCCESS' ? 'green' : 'red'
+
+            def body = """
+                <html>
+                <body>
+                <div style="border: 4px solid ${bannerColor}; padding: 10px;">
+                <h2>${jobName} - Build ${buildNumber}</h2>
+                <div style="background-color: ${bannerColor}; padding: 10px;">
+                <h3 style="color: white;">Pipeline Status: ${pipelineStatus.toUpperCase()}</h3>
+                </div>
+                <p>Check the <a href="${BUILD_URL}">console output</a>.</p>
+                </div>
+                </body>
+                </html>
+            """
+
+            emailext (
+                subject: "${jobName} - Build ${buildNumber} - ${pipelineStatus.toUpperCase()}",
+                body: body,
+                to: 'shabbirsyed085@gmail.com',
+                from: 'jenkins@example.com',
+                replyTo: 'jenkins@example.com',
+                mimeType: 'text/html',
+                attachmentsPattern: 'trivy-image-report.html'
+            )
+        }
+    }
+}
+
+}
+
+
+AWS -> 
+
+modify the default to your key-name :
+https://github.com/Shabbirsyed05/FullStack-Blogging-App/blob/main/EKS_Terraform/variables.tf
+
