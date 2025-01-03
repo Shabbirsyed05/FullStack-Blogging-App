@@ -267,8 +267,65 @@ pipeline {
 }
 
 
+
 AWS -> 
 
 modify the default to your key-name :
 https://github.com/Shabbirsyed05/FullStack-Blogging-App/blob/main/EKS_Terraform/variables.tf
+
+Terra-instance :
+Ubuntu 24 , t2.medium , 15 gb storage
+
+sudo apt update
+
+Install AWS CLI :
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+sudo apt install unzip
+unzip awscliv2.zip
+sudo ./aws/install
+aws configure
+
+terraform
+sudo snap install terraform --classic
+IAM -> User -> k8s -> administrator -> copy access key and secret key
+
+aws configure (ap-south-1)
+
+mkdir terra
+cd terra
+vi main.tf (copy from git)
+vi  output.tf
+vi variables.tf
+
+terraform init
+terraform plan
+terraform apply --auto-approve
+
+kubectl get nodes
+sudo snap install kubectl --classic
+
+aws eks --region ap-south-1 update-kubeconfig --name devopsshack-cluster
+kubectl get nodes
+
+cd ..
+https://github.com/jaiswaladi246/EKS-Complete/blob/main/Steps-eks.md
+vi svc.yaml (eks-complete/steps-eks.md )(github)
+kubectl create ns webapps
+kubectl apply -f svc.yaml
+vi role.yaml
+kubectl apply -f role.yaml
+vi bind.yaml
+kubectl apply -f bind.yaml
+
+vi jenkins-secret.yaml (click on the link of create token)(update service-account name)
+
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: mysecretname
+  annotations:
+    kubernetes.io/service-account.name: jenkins
+
+kubectl apply -f jenkins-secret.yaml -n webapps
 
