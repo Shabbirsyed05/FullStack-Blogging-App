@@ -100,6 +100,22 @@ System Configuration in Jenkins
 Manage Jenkins -> System -> SonarQube Server =>
 name (sonar-server) , url (https://sonar:9000) , server authentication token (sonar-token (from dropdown))
 
+Gmail -> Manage account -> app password -> app name (jenkins) , copy jenkins password
+kind (username and password) , username (email) , password (app_pass) , ID (email-creds)
+
+Manage Jenkins -> System -> Extended E-mail Notifications =>
+SMTP server (smtp.gmail.com) , smtp port (465) , Advanced =>
+credentials (from dropdown -> select (mail-cred) , tick (use SSL, Use OAuth 2.0)
+
+Manage Jenkins -> System -> E-mail Notifications =>
+SMTP server (smtp.gmail.com) -> Advanced =>
+'tick' use SMTP Authentication => username (email) , password (app_password) , tick (USE SSL) ,
+SMTP port (465) ,reply-to address (email) , tick (test configuration by sending test e mail) =>
+test e-amil recipient (email) -> test configuration
+
+CTRL + F -> Default triggers -> tick (Always , Failure - Any , Success)
+check email -> did u got mail or not
+
 Nexus webpage =>
 Maven-releases -> copy id and paste in github pom.xml
 Maven-snapshots -> copy id and paste in github pom.xml
@@ -113,6 +129,8 @@ Below settings need to be done or else you can upload the same artificat again a
 Nexus webpage=> settings -> Repositories -> snapshots -> Deployment Policy -> allow redploy
 
 Dockerhub => create private repository (bloggingapp)
+
+
 
 
 Pipeline :
@@ -212,15 +230,16 @@ pipeline {
         }
         stage('Deploy To Kubernetes') {
             steps {
-               withKubeConfig(caCertificate: '', clusterName: 'kubernetes', contextName: '', credentialsId: 'k8-cred', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://172.31.8.146:6443') {
+               withKubeConfig(caCertificate: '', clusterName: 'devopsshack-cluster', contextName: '', credentialsId: 'k8-cred', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://172.31.8.146:6443') {
                         sh "kubectl apply -f deployment-service.yaml"
+                        sleep 20
                 }
             }
         }
         
         stage('Verify the Deployment') {
             steps {
-               withKubeConfig(caCertificate: '', clusterName: 'kubernetes', contextName: '', credentialsId: 'k8-cred', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://172.31.8.146:6443') {
+               withKubeConfig(caCertificate: '', clusterName: 'devopsshack-cluster', contextName: '', credentialsId: 'k8-cred', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://172.31.8.146:6443') {
                         sh "kubectl get pods -n webapps"
                         sh "kubectl get svc -n webapps"
                 }
@@ -328,4 +347,90 @@ metadata:
     kubernetes.io/service-account.name: jenkins
 
 kubectl apply -f jenkins-secret.yaml -n webapps
+
+
+kubectl get secrets -n webapps
+kubectl describe secret mysecretname -n webapps
+
+copy the secret from above
+
+Jenkins => manage jenkins ->  Credentials -> system -> Global credentials -> secret text =>
+secret (paste the secret) , ID (k8-cred)
+
+
+AWS -> EKS -> Cluster -> API server endpoint 
+update the server url (serverUrl: 'https://172.31.8.146:6443')to correct server
+cluster name : devopsshack-cluster
+
+Jenkins server:
+sudo snap install kubectl --classic
+
+Go Daddy =>
+Domain -> Manage DNS -> dns -> CNAME -> value (Amazon LB )(remove https://)
+
+nslookup domain_name
+domain_name(chrome) -> Login
+
+Monitor Server :
+Ubuntu 24.04 , t2.large , storage 25 gb
+sudo apt update
+prometheus.io (download) -> Download -> select link of prometheus linux -> copy link address
+wget link
+tar -xvf tarfile_name
+rm tarfile_name
+
+prometheus.io (download) -> Download -> select link of blackbox_exporter of linux -> copy link address
+wget link
+tar -xvf tarfile_name
+rm tarfile_name
+
+grafana download (google) -> linux
+
+ip:3000 (grafana)
+
+cd prometheus
+ls
+./Prometheus &
+
+ip:9090 (promethues)
+cd ..
+cd blackbox
+./blackbox_exporter &
+
+ip:9115 (blackbox)
+
+github.com/prometheus/blackbox_exporter (google) (change Domain_name and monitor_IP_address)
+
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]  # Look for a HTTP 200 response.
+    static_configs:
+      - targets:
+        - http://prometheus.io    # Target to probe with http.
+        - http://domain_name # Target to probe with http on port 8080.
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: monitor_IP_address:9115  # The blackbox exporter's real hostname:port.
+
+cd ..
+cd prometheus/
+vi prometheus.yaml (paste at the ending)
+pgrep prometheus
+kill pid
+./prometheus &
+
+Prometheus => Status -> Targets
+
+Grafana webpage -> Connections -> Data sources -> Add data source -> select prometheus ->
+Url (Prometheus URL)
+
+Grafana blackbox Dashboard (Google) -> copy id
+Grafana webpage -> Dashboard -> Import -> paste id -> load -> Datasource (Prometheus)
+
+
 
